@@ -13,12 +13,6 @@ def format_time(milliseconds):
     hours, minutes = divmod(minutes, 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
-def time_to_ms(time_str):
-    hours, minutes, rest = time_str.split(':')
-    seconds, milliseconds = rest.split(',')
-    total_ms = int(milliseconds) + 1000 * (int(seconds) + 60 * (int(minutes) + 60 * int(hours)))
-    return total_ms
-
 def ms_to_time(ms):
     seconds = ms // 1000
     ms = ms % 1000
@@ -27,6 +21,12 @@ def ms_to_time(ms):
     hours = minutes // 60
     minutes = minutes % 60
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{ms:03d}"
+
+def time_to_ms(time_str):
+    hours, minutes, rest = time_str.split(':')
+    seconds, milliseconds = rest.split(',')
+    total_ms = int(milliseconds) + 1000 * (int(seconds) + 60 * (int(minutes) + 60 * int(hours)))
+    return total_ms
 
 def parse_srt_content(srt_content):
     lines = srt_content.strip().split('\n')
@@ -46,6 +46,32 @@ def parse_srt_content(srt_content):
     if current_subtitle:
         subtitles.append(current_subtitle)
     return subtitles
+
+def merge_subtitles(subtitles, merge_indices):
+    merged_subtitles = []
+    i = 0
+    while i < len(subtitles):
+        if isinstance(merge_indices, list) and i in merge_indices and i + 1 < len(subtitles) and i + 1 in merge_indices:
+            start_time = subtitles[i]['start_time']
+            end_time = subtitles[i + 1]['end_time']
+            text = subtitles[i]['text'] + ' ' + subtitles[i + 1]['text']
+
+            merged_subtitles.append({
+                'index': subtitles[i]['index'],
+                'start_time': start_time,
+                'end_time': end_time,
+                'text': text
+            })
+            i += 2  # Skip the next one as it's merged
+        else:
+            merged_subtitles.append(subtitles[i])
+            i += 1
+
+    # Reassign indices after merging
+    for idx, sub in enumerate(merged_subtitles, start=1):
+        sub['index'] = idx
+
+    return merged_subtitles
 
 def transcribe_audio(audio_file_path):
     audio = AudioSegment.from_file(audio_file_path)
@@ -86,16 +112,17 @@ def transcribe_audio(audio_file_path):
 
 def adjust_srt_content(srt_content):
     subtitles = parse_srt_content(srt_content)
-
     st.subheader("Ajuster les Sous-titres SRT")
     adjusted_subtitles = []
+
+    merge_indices = st.multiselect("Sélectionnez les indices des sous-titres à fusionner", [sub['index'] for sub in subtitles])
 
     for sub in subtitles:
         st.write(f"Sous-titre {sub['index']}:")
         st.text(sub['text'])
 
-        start_time = st.text_input(f"Temps de début (format: HH:MM:SS,mmm)", sub['start_time'])
-        end_time = st.text_input(f"Temps de fin (format: HH:MM:SS,mmm)", sub['end_time'])
+        start_time = st.text_input(f"Temps de début (format: HH:MM:SS,mmm)", sub['start_time'], key=f"start_{sub['index']}")
+        end_time = st.text_input(f"Temps de fin (format: HH:MM:SS,mmm)", sub['end_time'], key=f"end_{sub['index']}")
 
         adjusted_subtitles.append({
             'index': sub['index'],
@@ -104,8 +131,14 @@ def adjust_srt_content(srt_content):
             'text': sub['text']
         })
 
+    # Merge selected subtitles
+    if len(merge_indices) > 1:
+        subtitles = merge_subtitles(adjusted_subtitles, merge_indices)
+    else:
+        subtitles = adjusted_subtitles
+
     new_srt_content = ""
-    for sub in adjusted_subtitles:
+    for sub in subtitles:
         new_srt_content += f"{sub['index']}\n{sub['start_time']} --> {sub['end_time']}\n{sub['text']}\n\n"
 
     return new_srt_content
