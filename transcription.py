@@ -3,6 +3,7 @@ import speech_recognition as sr
 from pydub import AudioSegment
 import os
 import tempfile
+import re
 
 st.title("Transcription Audio en SRT")
 
@@ -39,13 +40,19 @@ def transcribe_audio(audio_file_path):
             st.error(f"Could not request results from Google Web Speech API; {e}")
             text = ""
 
-    # Durée de l'audio
+    # Segmenter le texte en phrases
+    sentences = re.split(r'(?<=[.!?])\s+', text) if text else [""]
     duration_ms = len(audio)
-    start_time = "00:00:00,000"
-    end_time = format_time(duration_ms)
+    time_per_sentence = duration_ms / len(sentences) if sentences and len(sentences) > 0 else 0
 
-    # Formater la transcription en sous-titres SRT
-    srt_content = f"1\n{start_time} --> {end_time}\n{text}\n\n"
+    # Générer le contenu SRT
+    srt_content = ""
+    for i, sentence in enumerate(sentences, 1):
+        start_time_ms = int((i-1) * time_per_sentence)
+        end_time_ms = int(i * time_per_sentence) if i != len(sentences) else duration_ms
+        start_time = format_time(start_time_ms)
+        end_time = format_time(end_time_ms)
+        srt_content += f"{i}\n{start_time} --> {end_time}\n{sentence}\n\n"
 
     # Supprimer le fichier WAV temporaire
     os.remove(temp_audio_path)
