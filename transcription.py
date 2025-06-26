@@ -47,31 +47,39 @@ def parse_srt_content(srt_content):
         subtitles.append(current_subtitle)
     return subtitles
 
-def merge_subtitles(subtitles, merge_indices):
-    merged_subtitles = []
-    i = 0
-    while i < len(subtitles):
-        if isinstance(merge_indices, list) and i in merge_indices and i + 1 < len(subtitles) and i + 1 in merge_indices:
-            start_time = subtitles[i]['start_time']
-            end_time = subtitles[i + 1]['end_time']
-            text = subtitles[i]['text'] + ' ' + subtitles[i + 1]['text']
+def split_subtitles(subtitles, split_indices):
+    new_subtitles = []
+    for sub in subtitles:
+        if sub['index'] in split_indices:
+            split_positions = [len(sub['text']) // 2]  # Exemple: diviser en deux parties égales
+            sub_text = sub['text']
+            start_time = time_to_ms(sub['start_time'])
+            end_time = time_to_ms(sub['end_time'])
+            duration = end_time - start_time
+            split_duration = duration // len(split_positions)
 
-            merged_subtitles.append({
-                'index': subtitles[i]['index'],
-                'start_time': start_time,
-                'end_time': end_time,
-                'text': text
-            })
-            i += 2  # Skip the next one as it's merged
+            prev_pos = 0
+            for idx, pos in enumerate(split_positions, 1):
+                split_text = sub_text[prev_pos:pos]
+                split_start_time = ms_to_time(start_time + idx * split_duration)
+                split_end_time = ms_to_time(start_time + (idx + 1) * split_duration)
+
+                # Ajouter un nouveau sous-titre divisé
+                new_subtitles.append({
+                    'index': len(new_subtitles) + 1,
+                    'start_time': split_start_time,
+                    'end_time': split_end_time,
+                    'text': split_text.strip()
+                })
+                prev_pos = pos
         else:
-            merged_subtitles.append(subtitles[i])
-            i += 1
+            new_subtitles.append(sub)
 
-    # Reassign indices after merging
-    for idx, sub in enumerate(merged_subtitles, start=1):
+    # Réindexer les sous-titres après scission
+    for idx, sub in enumerate(new_subtitles, start=1):
         sub['index'] = idx
 
-    return merged_subtitles
+    return new_subtitles
 
 def transcribe_audio(audio_file_path):
     audio = AudioSegment.from_file(audio_file_path)
@@ -115,7 +123,7 @@ def adjust_srt_content(srt_content):
     st.subheader("Ajuster les Sous-titres SRT")
     adjusted_subtitles = []
 
-    merge_indices = st.multiselect("Sélectionnez les indices des sous-titres à fusionner", [sub['index'] for sub in subtitles])
+    split_indices = st.multiselect("Sélectionnez les indices des sous-titres à diviser", [sub['index'] for sub in subtitles])
 
     for sub in subtitles:
         st.write(f"Sous-titre {sub['index']}:")
@@ -131,9 +139,9 @@ def adjust_srt_content(srt_content):
             'text': sub['text']
         })
 
-    # Merge selected subtitles
-    if len(merge_indices) > 1:
-        subtitles = merge_subtitles(adjusted_subtitles, merge_indices)
+    # Split selected subtitles
+    if split_indices:
+        subtitles = split_subtitles(adjusted_subtitles, split_indices)
     else:
         subtitles = adjusted_subtitles
 
