@@ -47,41 +47,6 @@ def parse_srt_content(srt_content):
         subtitles.append(current_subtitle)
     return subtitles
 
-def split_selected_subtitle(subtitles, subtitle_index, num_splits):
-    new_subtitles = []
-    for sub in subtitles:
-        if sub['index'] == subtitle_index:
-            sub_text = sub['text']
-            start_time = time_to_ms(sub['start_time'])
-            end_time = time_to_ms(sub['end_time'])
-            duration = end_time - start_time
-            split_duration = duration // num_splits
-
-            text_length = len(sub_text)
-            split_length = text_length // num_splits
-            for i in range(num_splits):
-                start_pos = i * split_length
-                end_pos = (i + 1) * split_length if i < num_splits - 1 else text_length
-                split_text = sub_text[start_pos:end_pos]
-
-                split_start_time = ms_to_time(start_time + i * split_duration)
-                split_end_time = ms_to_time(start_time + (i + 1) * split_duration)
-
-                new_subtitles.append({
-                    'index': len(new_subtitles) + 1,
-                    'start_time': split_start_time,
-                    'end_time': split_end_time,
-                    'text': split_text.strip()
-                })
-        else:
-            new_subtitles.append(sub)
-
-    # Réindexer les sous-titres après division
-    for idx, sub in enumerate(new_subtitles, start=1):
-        sub['index'] = idx
-
-    return new_subtitles
-
 def transcribe_audio(audio_file_path):
     audio = AudioSegment.from_file(audio_file_path)
 
@@ -123,37 +88,62 @@ def adjust_srt_content(srt_content):
     subtitles = parse_srt_content(srt_content)
     st.subheader("Ajuster les Sous-titres SRT")
 
-    # Demander à l'utilisateur de sélectionner un sous-titre à diviser
+    # Sélection du sous-titre à diviser
     subtitle_indices = [sub['index'] for sub in subtitles]
     selected_index = st.selectbox("Sélectionnez le sous-titre à diviser", subtitle_indices)
 
-    # Demander à l'utilisateur combien de divisions il veut pour le sous-titre sélectionné
     num_splits = st.number_input("Nombre de divisions pour le sous-titre sélectionné", min_value=2, max_value=10, value=2)
 
     adjusted_subtitles = []
 
-    for sub in subtitles:
-        st.write(f"Sous-titre {sub['index']}:")
-        st.text(sub['text'])
-
-        start_time = st.text_input(f"Temps de début (format: HH:MM:SS,mmm)", sub['start_time'], key=f"start_{sub['index']}")
-        end_time = st.text_input(f"Temps de fin (format: HH:MM:SS,mmm)", sub['end_time'], key=f"end_{sub['index']}")
-
-        adjusted_subtitles.append({
-            'index': sub['index'],
-            'start_time': start_time,
-            'end_time': end_time,
-            'text': sub['text']
-        })
-
-    # Diviser le sous-titre sélectionné
     if selected_index:
-        subtitles = split_selected_subtitle(adjusted_subtitles, selected_index, num_splits)
-    else:
-        subtitles = adjusted_subtitles
+        selected_sub = next(sub for sub in subtitles if sub['index'] == selected_index)
+        st.write(f"Sous-titre sélectionné {selected_sub['index']}:")
+        st.text(selected_sub['text'])
 
+        # Demander à l'utilisateur d'entrer les points de coupure
+        cut_points = []
+        for i in range(1, num_splits):
+            cut_point = st.text_input(f"Point de coupure {i} (indice dans le texte):", key=f"cut_{i}")
+            try:
+                cut_points.append(int(cut_point))
+            except ValueError:
+                cut_points.append(None)  # Gérer les erreurs d'entrée ici
+
+        # Demander à l'utilisateur d'entrer les nouveaux timestamps pour chaque segment
+        new_subs = []
+        last_pos = 0
+        start_time = time_to_ms(selected_sub['start_time'])
+        end_time = time_to_ms(selected_sub['end_time'])
+        duration = end_time - start_time
+        split_duration = duration // num_splits
+
+        for i in range(num_splits):
+            end_pos = cut_points[i - 1] if i < len(cut_points) else len(selected_sub['text'])
+            split_text = selected_sub['text'][last_pos:end_pos].strip()
+
+            split_start_time = ms_to_time(start_time + i * split_duration)
+            split_end_time = ms_to_time(start_time + (i + 1) * split_duration)
+
+            new_subs.append({
+                'index': len(new_subs) + 1,
+                'start_time': split_start_time,
+                'end_time': split_end_time,
+                'text': split_text
+            })
+            last_pos = end_pos
+
+        for sub in subtitles:
+            if sub['index'] == selected_index:
+                adjusted_subtitles.extend(new_subs)
+            else:
+                adjusted_subtitles.append(sub)
+    else:
+        adjusted_subtitles = subtitles
+
+    # Générer le contenu SRT
     new_srt_content = ""
-    for sub in subtitles:
+    for sub in adjusted_subtitles:
         new_srt_content += f"{sub['index']}\n{sub['start_time']} --> {sub['end_time']}\n{sub['text']}\n\n"
 
     return new_srt_content
