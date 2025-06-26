@@ -47,35 +47,37 @@ def parse_srt_content(srt_content):
         subtitles.append(current_subtitle)
     return subtitles
 
-def split_subtitles(subtitles, split_indices):
+def split_subtitles(subtitles, split_indices, num_splits):
     new_subtitles = []
     for sub in subtitles:
         if sub['index'] in split_indices:
-            split_positions = [len(sub['text']) // 2]  # Exemple: diviser en deux parties égales
             sub_text = sub['text']
             start_time = time_to_ms(sub['start_time'])
             end_time = time_to_ms(sub['end_time'])
             duration = end_time - start_time
-            split_duration = duration // len(split_positions)
+            split_duration = duration // num_splits
 
-            prev_pos = 0
-            for idx, pos in enumerate(split_positions, 1):
-                split_text = sub_text[prev_pos:pos]
-                split_start_time = ms_to_time(start_time + idx * split_duration)
-                split_end_time = ms_to_time(start_time + (idx + 1) * split_duration)
+            # Diviser le texte en plusieurs parties
+            text_length = len(sub_text)
+            split_length = text_length // num_splits
+            for i in range(num_splits):
+                start_pos = i * split_length
+                end_pos = (i + 1) * split_length if i < num_splits - 1 else text_length
+                split_text = sub_text[start_pos:end_pos]
 
-                # Ajouter un nouveau sous-titre divisé
+                split_start_time = ms_to_time(start_time + i * split_duration)
+                split_end_time = ms_to_time(start_time + (i + 1) * split_duration)
+
                 new_subtitles.append({
                     'index': len(new_subtitles) + 1,
                     'start_time': split_start_time,
                     'end_time': split_end_time,
                     'text': split_text.strip()
                 })
-                prev_pos = pos
         else:
             new_subtitles.append(sub)
 
-    # Réindexer les sous-titres après scission
+    # Réindexer les sous-titres après division
     for idx, sub in enumerate(new_subtitles, start=1):
         sub['index'] = idx
 
@@ -125,6 +127,8 @@ def adjust_srt_content(srt_content):
 
     split_indices = st.multiselect("Sélectionnez les indices des sous-titres à diviser", [sub['index'] for sub in subtitles])
 
+    num_splits = st.number_input("Nombre de divisions pour chaque sous-titre", min_value=2, max_value=10, value=2)
+
     for sub in subtitles:
         st.write(f"Sous-titre {sub['index']}:")
         st.text(sub['text'])
@@ -139,9 +143,9 @@ def adjust_srt_content(srt_content):
             'text': sub['text']
         })
 
-    # Split selected subtitles
+    # Diviser les sous-titres sélectionnés
     if split_indices:
-        subtitles = split_subtitles(adjusted_subtitles, split_indices)
+        subtitles = split_subtitles(adjusted_subtitles, split_indices, num_splits)
     else:
         subtitles = adjusted_subtitles
 
