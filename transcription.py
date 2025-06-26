@@ -6,11 +6,15 @@ import tempfile
 
 st.title("Transcription Audio en SRT")
 
-# Fonction pour transcrire l'audio et générer un fichier SRT
+def format_time(milliseconds):
+    seconds, milliseconds = divmod(milliseconds, 1000)
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
+
 def transcribe_audio(audio_file_path):
     # Charger le fichier audio
     audio = AudioSegment.from_file(audio_file_path)
-    duration = len(audio) / 1000  # Durée en secondes
 
     # Créer un fichier temporaire WAV
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file:
@@ -35,8 +39,13 @@ def transcribe_audio(audio_file_path):
             st.error(f"Could not request results from Google Web Speech API; {e}")
             text = ""
 
+    # Durée de l'audio
+    duration_ms = len(audio)
+    start_time = "00:00:00,000"
+    end_time = format_time(duration_ms)
+
     # Formater la transcription en sous-titres SRT
-    srt_content = f"1\n00:00:00,000 --> 00:{int(duration // 60):02d}:{int(duration % 60):02d},000\n{text}\n\n"
+    srt_content = f"1\n{start_time} --> {end_time}\n{text}\n\n"
 
     # Supprimer le fichier WAV temporaire
     os.remove(temp_audio_path)
