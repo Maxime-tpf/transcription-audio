@@ -1,11 +1,4 @@
 import streamlit as st
-import speech_recognition as sr
-from pydub import AudioSegment
-import os
-import tempfile
-import re
-
-st.title("Transcription Audio en SRT")
 
 def format_time(milliseconds):
     seconds, milliseconds = divmod(milliseconds, 1000)
@@ -23,149 +16,58 @@ def ms_to_time(ms):
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{ms:03d}"
 
 def time_to_ms(time_str):
-    hours, minutes, rest = time_str.split(':')
-    seconds, milliseconds = rest.split(',')
-    total_ms = int(milliseconds) + 1000 * (int(seconds) + 60 * (int(minutes) + 60 * int(hours)))
-    return total_ms
+    try:
+        hours, minutes, rest = time_str.split(':')
+        seconds, milliseconds = rest.split(',')
+        total_ms = int(milliseconds) + 1000 * (int(seconds) + 60 * (int(minutes) + 60 * int(hours)))
+        return total_ms
+    except:
+        return 0
 
-def parse_srt_content(srt_content):
-    lines = srt_content.strip().split('\n')
-    subtitles = []
-    current_subtitle = {}
-    for line in lines:
-        if line.isdigit():
-            if current_subtitle:
-                subtitles.append(current_subtitle)
-            current_subtitle = {'index': int(line)}
-        elif '-->' in line:
-            start_time_str, end_time_str = line.split(' --> ')
-            current_subtitle['start_time'] = start_time_str
-            current_subtitle['end_time'] = end_time_str
-        elif line.strip():
-            current_subtitle['text'] = line.strip()
-    if current_subtitle:
-        subtitles.append(current_subtitle)
-    return subtitles
-
-def transcribe_audio(audio_file_path):
-    audio = AudioSegment.from_file(audio_file_path)
-
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file:
-        temp_audio_path = temp_audio_file.name
-        audio.export(temp_audio_path, format="wav")
-
-    recognizer = sr.Recognizer()
-    audio_file = sr.AudioFile(temp_audio_path)
-
-    with audio_file as source:
-        audio_data = recognizer.record(source)
-        try:
-            text = recognizer.recognize_google(audio_data, language="fr-FR")
-        except sr.UnknownValueError:
-            st.error("Google Web Speech API could not understand the audio")
-            text = ""
-        except sr.RequestError as e:
-            st.error(f"Could not request results from Google Web Speech API; {e}")
-            text = ""
-
-    sentences = re.split(r'(?<=[.!?])\s+', text) if text else [""]
-    duration_ms = len(audio)
-    time_per_sentence = duration_ms / max(1, len(sentences))
-
+def generate_srt_content(subtitles):
     srt_content = ""
-    start_time_ms = 0
-    for i, sentence in enumerate(sentences, 1):
-        end_time_ms = start_time_ms + time_per_sentence
-        start_time = format_time(int(start_time_ms))
-        end_time = format_time(int(end_time_ms))
-        srt_content += f"{i}\n{start_time} --> {end_time}\n{sentence}\n\n"
-        start_time_ms = end_time_ms
-
-    os.remove(temp_audio_path)
+    for idx, sub in enumerate(subtitles, start=1):
+        srt_content += f"{idx}\n{sub['start_time']} --> {sub['end_time']}\n{sub['text']}\n\n"
     return srt_content
 
-def adjust_srt_content(srt_content):
-    subtitles = parse_srt_content(srt_content)
-    st.subheader("Ajuster les Sous-titres SRT")
+def main():
+    st.title("Créer des Sous-titres SRT Personnalisés")
 
-    # Sélection du sous-titre à diviser
-    subtitle_indices = [sub['index'] for sub in subtitles]
-    selected_index = st.selectbox("Sélectionnez le sous-titre à diviser", subtitle_indices)
+    # Demander à l'utilisateur d'entrer son texte
+    full_text = st.text_area("Entrez votre texte ici:")
 
-    num_splits = st.number_input("Nombre de divisions pour le sous-titre sélectionné", min_value=2, max_value=10, value=2)
+    if full_text:
+        st.write("Définissez chaque sous-titre:")
 
-    adjusted_subtitles = []
+        # Permettre à l'utilisateur de spécifier combien de sous-titres il veut
+        num_subtitles = st.number_input("Nombre de sous-titres:", min_value=1, max_value=20, value=1)
 
-    if selected_index:
-        selected_sub = next(sub for sub in subtitles if sub['index'] == selected_index)
-        st.write(f"Sous-titre sélectionné {selected_sub['index']}:")
-        st.text(selected_sub['text'])
+        subtitles = []
 
-        # Demander à l'utilisateur d'entrer les points de coupure
-        cut_points = []
-        for i in range(1, num_splits):
-            cut_point = st.text_input(f"Point de coupure {i} (indice dans le texte):", key=f"cut_{i}")
-            try:
-                cut_points.append(int(cut_point))
-            except ValueError:
-                cut_points.append(None)  # Gérer les erreurs d'entrée ici
+        for i in range(1, num_subtitles + 1):
+            st.write(f"Sous-titre {i}:")
+            text = st.text_area(f"Texte du sous-titre {i}:", key=f"text_{i}")
+            start_time = st.text_input(f"Temps de début pour le sous-titre {i} (format: HH:MM:SS,mmm):", key=f"start_{i}", value="00:00:00,000")
+            end_time = st.text_input(f"Temps de fin pour le sous-titre {i} (format: HH:MM:SS,mmm):", key=f"end_{i}", value="00:00:05,000")
 
-        # Demander à l'utilisateur d'entrer les nouveaux timestamps pour chaque segment
-        new_subs = []
-        last_pos = 0
-        start_time = time_to_ms(selected_sub['start_time'])
-        end_time = time_to_ms(selected_sub['end_time'])
-        duration = end_time - start_time
-        split_duration = duration // num_splits
-
-        for i in range(num_splits):
-            end_pos = cut_points[i - 1] if i < len(cut_points) else len(selected_sub['text'])
-            split_text = selected_sub['text'][last_pos:end_pos].strip()
-
-            split_start_time = ms_to_time(start_time + i * split_duration)
-            split_end_time = ms_to_time(start_time + (i + 1) * split_duration)
-
-            new_subs.append({
-                'index': len(new_subs) + 1,
-                'start_time': split_start_time,
-                'end_time': split_end_time,
-                'text': split_text
+            subtitles.append({
+                'text': text,
+                'start_time': start_time,
+                'end_time': end_time
             })
-            last_pos = end_pos
 
-        for sub in subtitles:
-            if sub['index'] == selected_index:
-                adjusted_subtitles.extend(new_subs)
-            else:
-                adjusted_subtitles.append(sub)
-    else:
-        adjusted_subtitles = subtitles
+        # Générer le contenu SRT
+        srt_content = generate_srt_content(subtitles)
 
-    # Générer le contenu SRT
-    new_srt_content = ""
-    for sub in adjusted_subtitles:
-        new_srt_content += f"{sub['index']}\n{sub['start_time']} --> {sub['end_time']}\n{sub['text']}\n\n"
+        st.subheader("Contenu SRT Généré")
+        st.text(srt_content)
 
-    return new_srt_content
+        st.download_button(
+            label="Télécharger la transcription SRT",
+            data=srt_content,
+            file_name="transcription_custom.srt",
+            mime="text/plain"
+        )
 
-uploaded_file = st.file_uploader("Choisissez un fichier audio", type=["mp3", "mp4", "wav"])
-
-if uploaded_file is not None:
-    with tempfile.NamedTemporaryFile(delete=False) as temp_file:
-        temp_file.write(uploaded_file.getvalue())
-        temp_file_path = temp_file.name
-
-    srt_content = transcribe_audio(temp_file_path)
-    adjusted_srt_content = adjust_srt_content(srt_content)
-
-    st.subheader("Transcription Ajustée")
-    st.text(adjusted_srt_content)
-
-    st.download_button(
-        label="Télécharger la transcription SRT ajustée",
-        data=adjusted_srt_content,
-        file_name="transcription_ajustée.srt",
-        mime="text/plain"
-    )
-
-    os.remove(temp_file_path)
+if __name__ == "__main__":
+    main()
