@@ -13,22 +13,50 @@ def format_time(milliseconds):
     hours, minutes = divmod(minutes, 60)
     return f"{hours:02d}:{minutes:02d}:{seconds:02d},{milliseconds:03d}"
 
+def time_to_ms(time_str):
+    hours, minutes, rest = time_str.split(':')
+    seconds, milliseconds = rest.split(',')
+    total_ms = int(milliseconds) + 1000 * (int(seconds) + 60 * (int(minutes) + 60 * int(hours)))
+    return total_ms
+
+def ms_to_time(ms):
+    seconds = ms // 1000
+    ms = ms % 1000
+    minutes = seconds // 60
+    seconds = seconds % 60
+    hours = minutes // 60
+    minutes = minutes % 60
+    return f"{hours:02d}:{minutes:02d}:{seconds:02d},{ms:03d}"
+
+def parse_srt_content(srt_content):
+    lines = srt_content.strip().split('\n')
+    subtitles = []
+    current_subtitle = {}
+    for line in lines:
+        if line.isdigit():
+            if current_subtitle:
+                subtitles.append(current_subtitle)
+            current_subtitle = {'index': int(line)}
+        elif '-->' in line:
+            start_time_str, end_time_str = line.split(' --> ')
+            current_subtitle['start_time'] = start_time_str
+            current_subtitle['end_time'] = end_time_str
+        elif line.strip():
+            current_subtitle['text'] = line.strip()
+    if current_subtitle:
+        subtitles.append(current_subtitle)
+    return subtitles
+
 def transcribe_audio(audio_file_path):
-    # Charger le fichier audio
     audio = AudioSegment.from_file(audio_file_path)
 
-    # Créer un fichier temporaire WAV
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file:
         temp_audio_path = temp_audio_file.name
         audio.export(temp_audio_path, format="wav")
 
-    # Initialiser le recognizer
     recognizer = sr.Recognizer()
-
-    # Charger le fichier audio temporaire
     audio_file = sr.AudioFile(temp_audio_path)
 
-    # Lire le fichier audio et transcrire
     with audio_file as source:
         audio_data = recognizer.record(source)
         try:
@@ -40,13 +68,10 @@ def transcribe_audio(audio_file_path):
             st.error(f"Could not request results from Google Web Speech API; {e}")
             text = ""
 
-    # Segmenter le texte en phrases
     sentences = re.split(r'(?<=[.!?])\s+', text) if text else [""]
     duration_ms = len(audio)
-    # Attribuer un temps proportionnel à chaque phrase
-    time_per_sentence = duration_ms / max(1, len(sentences)) # Éviter la division par zéro
+    time_per_sentence = duration_ms / max(1, len(sentences))
 
-    # Générer le contenu SRT
     srt_content = ""
     start_time_ms = 0
     for i, sentence in enumerate(sentences, 1):
@@ -54,36 +79,55 @@ def transcribe_audio(audio_file_path):
         start_time = format_time(int(start_time_ms))
         end_time = format_time(int(end_time_ms))
         srt_content += f"{i}\n{start_time} --> {end_time}\n{sentence}\n\n"
-        start_time_ms = end_time_ms  # Le temps de début de la prochaine phrase est le temps de fin actuel
+        start_time_ms = end_time_ms
 
-    # Supprimer le fichier WAV temporaire
     os.remove(temp_audio_path)
-
     return srt_content
 
-# Interface Streamlit pour télécharger un fichier audio
+def adjust_srt_content(srt_content):
+    subtitles = parse_srt_content(srt_content)
+
+    st.subheader("Ajuster les Sous-titres SRT")
+    adjusted_subtitles = []
+
+    for sub in subtitles:
+        st.write(f"Sous-titre {sub['index']}:")
+        st.text(sub['text'])
+
+        start_time = st.text_input(f"Temps de début (format: HH:MM:SS,mmm)", sub['start_time'])
+        end_time = st.text_input(f"Temps de fin (format: HH:MM:SS,mmm)", sub['end_time'])
+
+        adjusted_subtitles.append({
+            'index': sub['index'],
+            'start_time': start_time,
+            'end_time': end_time,
+            'text': sub['text']
+        })
+
+    new_srt_content = ""
+    for sub in adjusted_subtitles:
+        new_srt_content += f"{sub['index']}\n{sub['start_time']} --> {sub['end_time']}\n{sub['text']}\n\n"
+
+    return new_srt_content
+
 uploaded_file = st.file_uploader("Choisissez un fichier audio", type=["mp3", "mp4", "wav"])
 
 if uploaded_file is not None:
-    # Sauvegarder le fichier téléchargé temporairement
     with tempfile.NamedTemporaryFile(delete=False) as temp_file:
         temp_file.write(uploaded_file.getvalue())
         temp_file_path = temp_file.name
 
-    # Transcrire l'audio
     srt_content = transcribe_audio(temp_file_path)
+    adjusted_srt_content = adjust_srt_content(srt_content)
 
-    # Afficher la transcription
-    st.subheader("Transcription")
-    st.text(srt_content)
+    st.subheader("Transcription Ajustée")
+    st.text(adjusted_srt_content)
 
-    # Fournir un bouton pour télécharger le fichier SRT
     st.download_button(
-        label="Télécharger la transcription SRT",
-        data=srt_content,
-        file_name="transcription.srt",
+        label="Télécharger la transcription SRT ajustée",
+        data=adjusted_srt_content,
+        file_name="transcription_ajustée.srt",
         mime="text/plain"
     )
 
-    # Supprimer le fichier temporaire
     os.remove(temp_file_path)
