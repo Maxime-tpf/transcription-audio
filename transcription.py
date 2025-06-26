@@ -10,6 +10,7 @@ st.title("Transcription Audio en SRT")
 def transcribe_audio(audio_file_path):
     # Charger le fichier audio
     audio = AudioSegment.from_file(audio_file_path)
+    duration = len(audio) / 1000  # Durée en secondes
 
     # Créer un fichier temporaire WAV
     with tempfile.NamedTemporaryFile(delete=False, suffix=".wav") as temp_audio_file:
@@ -35,7 +36,7 @@ def transcribe_audio(audio_file_path):
             text = ""
 
     # Formater la transcription en sous-titres SRT
-    srt_content = "1\n00:00:00,000 --> 00:00:10,000\n" + text + "\n\n"
+    srt_content = f"1\n00:00:00,000 --> 00:{int(duration // 60):02d}:{int(duration % 60):02d},000\n{text}\n\n"
 
     # Supprimer le fichier WAV temporaire
     os.remove(temp_audio_path)
